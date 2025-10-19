@@ -108,8 +108,9 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       NULL,
       "system",
       {
-         { "disabled", NULL },
-         { "enabled",  NULL },
+         { "disabled",        NULL },
+         { "enabled",         NULL },
+         { "wait_for_jingle", "ON (Wait for FDS Jingle)" },
          { NULL, NULL },
       },
       "enabled"

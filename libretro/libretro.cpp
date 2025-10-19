@@ -62,7 +62,6 @@ static char g_rom_dir[256];
 static char *g_save_dir;
 static char samp_dir[256];
 static unsigned blargg_ntsc;
-static bool fds_auto_insert;
 static int arkanoid_paddle_min = 0;
 static int arkanoid_paddle_max = 255;
 static int overscan_v_top, overscan_v_bottom;
@@ -113,6 +112,15 @@ static bool fds_ups_extension;
 static bool fds_ips_extension;
 static bool fds_patch_format_ups;
 static bool fds_patch_format_ips;
+
+static enum {
+   FDS_AUTO_INSERT_DISABLED = 0,
+   FDS_AUTO_INSERT_ENABLED,
+   FDS_AUTO_INSERT_WAIT_FOR_JINGLE,
+} fds_auto_insert;
+
+static unsigned frame_count = 0;
+static bool want_frame_count = true;
 
 static const byte royaltea_palette[64][3] =
 {
@@ -669,11 +677,11 @@ void retro_reset(void)
 {
    machine->Reset(false);
 
+   frame_count = 0;
    if (machine->Is(Nes::Api::Machine::DISK))
    {
+      want_frame_count = true;
       fds->EjectDisk();
-      if (fds_auto_insert)
-         fds->InsertDisk(0, 0);
    }
 }
 
@@ -1062,7 +1070,14 @@ static void check_variables(void)
 
    var.key = "nestopia_fds_auto_insert"; // FDS Auto Insert
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
-      fds_auto_insert = (strcmp(var.value, "enabled") == 0);
+   {
+      if (strcmp(var.value, "disabled") == 0)
+         fds_auto_insert = FDS_AUTO_INSERT_DISABLED;
+      else if (strcmp(var.value, "enabled") == 0)
+         fds_auto_insert = FDS_AUTO_INSERT_ENABLED;
+      else if (strcmp(var.value, "wait_for_jingle") == 0)
+         fds_auto_insert = FDS_AUTO_INSERT_WAIT_FOR_JINGLE;
+   }
 
    var.key = "nestopia_fds_savefile_format"; // FDS Savefile Format
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
@@ -1500,6 +1515,20 @@ static void check_variables(void)
 
 void retro_run(void)
 {
+   bool fds_want_auto_insert = ((fds_auto_insert == FDS_AUTO_INSERT_ENABLED) ||
+                               ((fds_auto_insert == FDS_AUTO_INSERT_WAIT_FOR_JINGLE) && (frame_count == 240)));
+   if (fds && !fds->IsAnyDiskInserted())
+   {
+      if (want_frame_count)
+         frame_count++;
+
+      if (fds_want_auto_insert)
+      {
+         want_frame_count = false;
+         fds->InsertDisk(0, 0);
+      }
+   }
+
    poll_fds_buttons();
    emulator.Execute(video, audio, input);
 
@@ -1802,11 +1831,12 @@ bool retro_load_game(const struct retro_game_info *info)
 
    machine->Power(true);
 
+   frame_count = 0;
+   if (machine->Is(Nes::Api::Machine::DISK))
+      want_frame_count = true;
+
    check_variables();
 
-   if (fds_auto_insert && machine->Is(Nes::Api::Machine::DISK))
-      fds->InsertDisk(0, 0);
-   
    video = new Api::Video::Output(video_buffer, video_width * sizeof(uint32_t));
    
    if (log_cb)
